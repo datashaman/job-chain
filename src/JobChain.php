@@ -92,6 +92,15 @@ class JobChain
         return true;
     }
 
+    public function getKey(string $key = '')
+    {
+        if ($key) {
+            return "{$this->key}.{$key}";
+        }
+
+        return $this->key;
+    }
+
     protected function dispatchJob(string $jobKey, array $params = [])
     {
         Cache::put($this->getKey($jobKey) . '.dispatched', 1, $this->lifetime);
@@ -105,15 +114,6 @@ class JobChain
         $job->setJobKey($jobKey);
 
         $this->dispatch($job);
-    }
-
-    protected function getKey(string $key = '')
-    {
-        if ($key) {
-            return "{$this->key}.{$key}";
-        }
-
-        return $this->key;
     }
 
     protected function shouldDispatch($jobKey)
