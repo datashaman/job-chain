@@ -1,0 +1,41 @@
+{
+    "name": "datashaman/job-chain",
+    "description": "Chain jobs together with cache.",
+    "license": "MIT",
+    "type": "library",
+    "authors": [
+        {
+            "name": "datashaman",
+            "email": "marlinf@datashaman.com"
+        }
+    ],
+    "require-dev": {
+        "nunomaduro/collision": "^7.4",
+        "orchestra/testbench": "^8.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Datashaman\\JobChain\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php vendor/bin/testbench package:discover --ansi"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Datashaman\\JobChain\\JobChainServiceProvider"
+            ],
+            "aliases": {
+                "JobChain": "Datashaman\\JobChain\\JobChainFacade"
+            }
+        }
+    }
+}

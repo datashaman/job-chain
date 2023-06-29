@@ -1,0 +1,15 @@
+done: jobThree
+
+lifetime: 86400
+
+jobs:
+  jobOne:
+    type: Tests\Fixtures\JobOne
+  jobTwo:
+    type: Tests\Fixtures\JobTwo
+    params:
+      documents: !job jobOne
+  jobThree:
+    type: Tests\Fixtures\JobThree
+    params:
+      documents: !job jobTwo
