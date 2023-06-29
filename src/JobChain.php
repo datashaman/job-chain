@@ -71,9 +71,20 @@ class JobChain
         }
     }
 
-    public function done(string $jobKey, mixed $value)
+    public function done(string $jobKey, mixed $error, mixed $response)
     {
-        $this->putData($jobKey, $value);;
+        if ($error) {
+            logger()->error('JobChain halted with error', [
+                'jobKey' => $jobKey,
+                'error' => $error,
+            ]);
+
+            JobChainError::dispatch($this, $jobKey, $error);
+
+            return;
+        }
+
+        $this->putResponse($jobKey, $response);;
 
         $result = $this
             ->jobs
@@ -85,7 +96,13 @@ class JobChain
                     }
 
                     if ($jobKey === $this->done) {
-                        JobChainDone::dispatch($this, $this->getData($jobKey));
+                        $response = $this->getResponse($jobKey);
+
+                        logger()->info('JobChain is done', [
+                            'response' => $response,
+                        ]);
+
+                        JobChainDone::dispatch($this, $response);
 
                         return false;
                     }
@@ -137,22 +154,23 @@ class JobChain
         return collect($job['data'] ?? [])
             ->values()
             ->filter(fn ($input) => $input instanceof TaggedValue && $input->getTag() === 'job')
-            ->search(fn ($tag) => !$this->hasData($tag->getValue())) === false;
+            ->search(fn ($tag) => !$this->hasResponse($tag->getValue())) === false;
     }
 
-    protected function hasData($jobKey): bool
+    protected function hasResponse($jobKey): bool
     {
         return Cache::has($this->getKey($jobKey));
     }
 
-    protected function getData(string $jobKey): mixed
+    protected function getResponse(string $jobKey): mixed
     {
         return Cache::get($this->getKey($jobKey));
     }
 
-    protected function putData(string $jobKey, mixed $value)
+    protected function putResponse(string $jobKey, mixed $response)
     {
-        return Cache::put($this->getKey($jobKey), $value, $this->lifetime);
+        Cache::put($this->getKey($jobKey), $response, $this->lifetime);
+        JobChainResponse::dispatch($this, $jobKey, $response);
     }
 
     protected function getParams(array $job, array $params = []): array
@@ -166,7 +184,7 @@ class JobChain
             ->map(
                 function ($input) {
                     return $input instanceof TaggedValue && $input->getTag() === 'job'
-                        ? $this->getData($input->getValue())
+                        ? $this->getResponse($input->getValue())
                         : $input;
                 }
             )
