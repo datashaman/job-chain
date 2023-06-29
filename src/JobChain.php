@@ -2,6 +2,7 @@
 
 namespace Datashaman\JobChain;
 
+use Exception;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
@@ -71,14 +72,9 @@ class JobChain
         }
     }
 
-    public function done(string $jobKey, mixed $error, mixed $response)
+    public function done(string $jobKey, mixed $error = null, mixed $response = null)
     {
         if ($error) {
-            logger()->error('JobChain halted with error', [
-                'jobKey' => $jobKey,
-                'error' => $error,
-            ]);
-
             JobChainError::dispatch($this, $jobKey, $error);
 
             return;
@@ -86,7 +82,7 @@ class JobChain
 
         $this->putResponse($jobKey, $response);;
 
-        $result = $this
+        $this
             ->jobs
             ->keys()
             ->each(
@@ -95,35 +91,31 @@ class JobChain
                         $this->dispatchJob($jobKey);
                     }
 
-                    if ($jobKey === $this->done) {
+                    if (!$this->isDone() && $jobKey === $this->done) {
                         $response = $this->getResponse($jobKey);
-
-                        logger()->info('JobChain is done', [
-                            'response' => $response,
-                        ]);
-
                         JobChainDone::dispatch($this, $response);
+                        Cache::put($this->getKey('done'), 1, $this->lifetime);
 
                         return false;
                     }
                 }
             );
-
-        return true;
     }
 
-    public function getKey(string $key = '')
+    public function getKey(string $key = '', string $suffix = '')
     {
-        if ($key) {
-            return "{$this->key}.{$key}";
+        if ($suffix && !$key) {
+            throw new Exception('Cannot set suffix without key');
         }
 
-        return $this->key;
+        return collect([$this->key, $key, $suffix])
+            ->filter()
+            ->implode('.');
     }
 
     protected function dispatchJob(string $jobKey, array $params = [])
     {
-        Cache::put($this->getKey($jobKey) . '.dispatched', 1, $this->lifetime);
+        Cache::put($this->getKey($jobKey, 'dispatched'), 1, $this->lifetime);
 
         $job = App::make(
             $this->jobs[$jobKey]['type'],
@@ -144,7 +136,12 @@ class JobChain
 
     protected function wasDispatched(string $key): bool
     {
-        return (bool) Cache::get($this->getKey($key) . '.dispatched');
+        return (bool) Cache::get($this->getKey($key, 'dispatched'));
+    }
+
+    protected function isDone(): bool
+    {
+        return (bool) Cache::get($this->getKey('done'));
     }
 
     protected function dependenciesMet(string $jobKey): bool
