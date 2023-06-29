@@ -13,6 +13,10 @@ class JobChainServiceProvider extends ServiceProvider
      */
     public function register()
     {
+        $this->mergeConfigFrom(
+            __DIR__.'/../config/job-chain.php', 'job-chain'
+        );
+
         $this->app->singleton('job-chain', function ($app) {
             return $app->make(JobChainLoader::class, [
                 'paths' => config('job-chain.paths'),

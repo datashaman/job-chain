@@ -28,7 +28,7 @@ class JobChain
         $this->jobs = collect($jobs);
         $this->key = $key ?: Str::uuid();
         $this->done = $done ?: $this->jobs->keys()->last();
-        $this->lifetime = $lifetime ?? config('job-chain.lifetime');
+        $this->lifetime = $lifetime ?: config('job-chain.lifetime');
     }
 
     public function writeToYaml(string $path): self

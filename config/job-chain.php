@@ -19,5 +19,5 @@ return [
      *
      * This can overridden per chain.
      */
-    'lifetime' = env('JOB_CHAIN_LIFETIME', 60 * 60 * 24),
+    'lifetime' => env('JOB_CHAIN_LIFETIME', 60 * 60 * 24),
 ];
