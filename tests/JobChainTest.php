@@ -8,18 +8,11 @@ use Illuminate\Support\Facades\Event;
 
 class JobChainTest extends TestCase
 {
-    public function setUp(): void
-    {
-        parent::setUp();
-
-        $this->jobChain = JobChain::load('chain1');
-    }
-
     public function testJobChain()
     {
         Event::fake();
 
-        $this->jobChain->run();
+        JobChain::run('chain1');
 
         Event::assertDispatched(function (JobChainDone $event) {
             return $event->value === 'JobThree has run';
