@@ -10,6 +10,6 @@ class JobOne
 
     public function handle()
     {
-        $this->done('JobOne has run');
+        $this->done(null, 'JobOne has run');
     }
 }

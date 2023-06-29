@@ -17,8 +17,8 @@ trait HasJobChain
         $this->jobKey = $jobKey;
     }
 
-    public function done(mixed $value): void
+    public function done(mixed $error, mixed $response): void
     {
-        $this->jobChain->done($this->jobKey, $value);
+        $this->jobChain->done($this->jobKey, $error, $response);
     }
 }
