@@ -52,10 +52,10 @@ class JobChain
     public function run(array $params = [])
     {
         foreach ($this->jobs as $jobKey => $job) {
-            $params = $job['params'] ?? [];
+            $jobParams = $job['params'] ?? [];
             $hasDependency = false;
 
-            foreach ($params as $input) {
+            foreach ($jobParams as $input) {
                 if ($input instanceof TaggedValue) {
                     $hasDependency = true;
                     break;
@@ -63,7 +63,12 @@ class JobChain
             }
 
             if (!$hasDependency) {
-                $this->dispatchJob($jobKey, $params);
+                $this->dispatchJob($jobKey,
+                    array_merge(
+                        $jobParams,
+                        $params
+                    )
+                );
             }
         }
     }
