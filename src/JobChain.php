@@ -62,13 +62,11 @@ class JobChain
                 }
             }
 
+
             if (!$hasDependency) {
-                $this->dispatchJob($jobKey,
-                    array_merge(
-                        $jobParams,
-                        $params
-                    )
-                );
+                $jobParams = array_merge($jobParams, $params);
+
+                $this->dispatchJob($jobKey, $jobParams);
             }
         }
     }
@@ -112,7 +110,7 @@ class JobChain
 
         $job = App::make(
             $this->jobs[$jobKey]['type'],
-            $this->getParams($this->jobs[$jobKey])
+            $this->getParams($this->jobs[$jobKey], $params)
         );
 
         $job->setJobChain($this);
