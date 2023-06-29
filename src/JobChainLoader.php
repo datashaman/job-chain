@@ -2,6 +2,7 @@
 
 namespace Datashaman\JobChain;
 
+use Exception;
 use Illuminate\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
 
@@ -15,17 +16,17 @@ class JobChainLoader
 
     public function load(string $chain): JobChain
     {
-        $chain = str_replace('.', DIRECTORY_SEPARATOR, $chain);
+        $chain = str_replace('.', '/', $chain);
 
         foreach ($this->paths as $path) {
-            $path = $path . DIRECTORY_SEPARATOR . $chain . '.yml';
+            $file = "{$path}/{$chain}.yml";
 
-            if ($this->files->exists($path)) {
-                return $this->loadFromYaml($path);
+            if ($this->files->exists($file)) {
+                return $this->loadFromYaml($file);
             }
         }
 
-        throw new RuntimeException('Job chain not found');
+        throw new Exception('Job chain not found');
     }
 
     public function run(string $chain, array $params = [])
