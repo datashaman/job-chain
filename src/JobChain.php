@@ -4,10 +4,12 @@ namespace Datashaman\JobChain;
 
 use Exception;
 use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Symfony\Component\Yaml\Tag\TaggedValue;
 use Symfony\Component\Yaml\Yaml;
 
@@ -50,7 +52,7 @@ class JobChain
         ];
     }
 
-    public function run(array $params = [])
+    public function run(array $inputs = [])
     {
         foreach ($this->jobs as $jobKey => $job) {
             $jobParams = $job['params'] ?? [];
@@ -58,14 +60,24 @@ class JobChain
 
             foreach ($jobParams as $input) {
                 if ($input instanceof TaggedValue) {
-                    $hasDependency = true;
-                    break;
+                    $inputTag = $input->getTag();
+                    $inputValue = $input->getValue();
+
+                    throw_if(
+                        $inputTag === 'input' && !Arr::has($inputs, $inputValue),
+                        RuntimeException::class,
+                        "Input '${inputValue}' is missing. Please provide it as parameter to the run method."
+                    );
+
+                    if ($inputTag === 'job') {
+                        $hasDependency = true;
+                        break;
+                    }
                 }
             }
 
-
             if (!$hasDependency) {
-                $jobParams = array_merge($jobParams, $params);
+                $jobParams = array_merge($jobParams, $inputs);
 
                 $this->dispatchJob($jobKey, $jobParams);
             }
@@ -104,9 +116,11 @@ class JobChain
 
     public function getKey(string $key = '', string $suffix = '')
     {
-        if ($suffix && !$key) {
-            throw new Exception('Cannot set suffix without key');
-        }
+        throw_if(
+            $suffix && !$key,
+            RuntimeException::class,
+            'Cannot set suffix without key'
+        );
 
         return collect([$this->key, $key, $suffix])
             ->filter()
@@ -180,9 +194,26 @@ class JobChain
         return collect($params)
             ->map(
                 function ($input) {
-                    return $input instanceof TaggedValue && $input->getTag() === 'job'
-                        ? $this->getResponse($input->getValue())
-                        : $input;
+                    if ($input instanceof TaggedValue) {
+                        $inputTag = $input->getTag();
+                        $inputValue = $input->getValue();
+
+                        if ($inputTag === 'job') {
+                            [$inputJob, $inputKey] = array_pad(explode('.', $inputValue), 2, null);
+
+                            $response = $this->getResponse($inputJob);
+
+                            if ($inputKey) {
+                                return Arr::get($response, $inputKey);
+                            }
+
+                            return $response;
+                        }
+
+                        throw new RuntimeException("Unhandled tag '{$inputTag}' with value '{$inputValue}'");
+                    }
+
+                    return $input;
                 }
             )
             ->all();
