@@ -20,18 +20,17 @@ class JobChain
     protected Collection $jobs;
     protected string $key;
     protected string $done;
+    protected string $namespace;
     protected int $lifetime;
 
     public function __construct(
-        array $jobs,
-        string $key = '',
-        string $done = '',
-        ?int $lifetime = null
+        array $config
     ) {
-        $this->jobs = collect($jobs);
-        $this->key = $key ?: Str::uuid();
-        $this->done = $done ?: $this->jobs->keys()->last();
-        $this->lifetime = $lifetime ?: config('job-chain.lifetime');
+        $this->jobs = collect($config['jobs']);
+        $this->key = $config['key'] ?? Str::uuid();
+        $this->done = $config['done'] ?? $this->jobs->keys()->last();
+        $this->namespace = trim($config['namespace'] ?? '', "\\ \n\r\t\v\x00");
+        $this->lifetime = $config['lifetime'] ?? config('job-chain.lifetime');
     }
 
     public function writeToYaml(string $path): self
@@ -131,8 +130,14 @@ class JobChain
     {
         Cache::put($this->getKey($jobKey, 'dispatched'), 1, $this->lifetime);
 
+        $type = $this->jobs[$jobKey]['type'];
+
+        if ($this->namespace) {
+            $type = "{$this->namespace}\\{$type}";
+        }
+
         $job = App::make(
-            $this->jobs[$jobKey]['type'],
+            $type,
             $this->getParams($this->jobs[$jobKey], $params)
         );
 

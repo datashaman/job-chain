@@ -38,10 +38,6 @@ class JobChainLoader
     {
         $config = Yaml::parseFile($path, Yaml::PARSE_CUSTOM_TAGS);
 
-        return new JobChain(
-            $config['jobs'],
-            $config['key'] ?? '',
-            $config['done'] ?? '',
-        );
+        return new JobChain($config);
     }
 }   
