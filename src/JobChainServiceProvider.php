@@ -11,7 +11,7 @@ class JobChainServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function register()
+    public function register(): void
     {
         $this->mergeConfigFrom(
             __DIR__.'/../config/job-chain.php', 'job-chain'
@@ -29,7 +29,7 @@ class JobChainServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function boot()
+    public function boot(): void
     {
         $this->publishes([
             __DIR__.'/../config/job-chain.php' => config_path('job-chain.php'),
@@ -41,7 +41,7 @@ class JobChainServiceProvider extends ServiceProvider
      *
      * @return array
      */
-    public function provides()
+    public function provides(): array
     {
         return ['job-chain'];
     }

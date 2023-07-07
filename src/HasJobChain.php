@@ -7,12 +7,12 @@ trait HasJobChain
     protected JobChain $jobChain;
     protected string $jobKey;
 
-    public function setJobChain(JobChain $jobChain)
+    public function setJobChain(JobChain $jobChain): void
     {
         $this->jobChain = $jobChain;
     }
 
-    public function setJobKey(string $jobKey)
+    public function setJobKey(string $jobKey): void
     {
         $this->jobKey = $jobKey;
     }

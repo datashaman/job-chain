@@ -2,8 +2,8 @@
 
 namespace Datashaman\JobChain;
 
-use Exception;
 use Illuminate\Filesystem\Filesystem;
+use RuntimeException;
 use Symfony\Component\Yaml\Yaml;
 
 class JobChainLoader
@@ -14,30 +14,34 @@ class JobChainLoader
     ) {
     }
 
+    /**
+     * @throws RuntimeException
+     */
     public function load(string $chain): JobChain
     {
         $chain = str_replace('.', '/', $chain);
 
         foreach ($this->paths as $path) {
-            $file = "{$path}/{$chain}.yml";
+            $file = "$path/$chain.yml";
 
             if ($this->files->exists($file)) {
                 return $this->loadFromYaml($file);
             }
         }
 
-        throw new Exception('Job chain not found');
+        throw new RuntimeException('Job chain not found');
     }
 
-    public function run(string $chain, array $params = [])
+    public function run(string $chain, array $params = []): void
     {
-        return $this->load($chain)->run($params);
+        $this->load($chain)->run($params);
     }
 
     protected function loadFromYaml(string $path): JobChain
     {
+        $name = basename($path, '.yml');
         $config = Yaml::parseFile($path, Yaml::PARSE_CUSTOM_TAGS);
 
-        return new JobChain($config);
+        return new JobChain($name, $config);
     }
 }   

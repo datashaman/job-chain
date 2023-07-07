@@ -17,7 +17,7 @@ return [
      * Cache item lifetime. This must be longer than the total expected
      * run time for any chain.
      *
-     * This can overridden per chain.
+     * This can be overridden per chain.
      */
     'lifetime' => env('JOB_CHAIN_LIFETIME', 60 * 60 * 24),
 ];
