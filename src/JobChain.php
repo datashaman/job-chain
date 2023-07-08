@@ -165,6 +165,11 @@ class JobChain
         return $channels;
     }
 
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
     protected function getChannelRoute(string $route): string
     {
         $replacements = [
