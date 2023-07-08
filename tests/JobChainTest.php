@@ -3,8 +3,8 @@
 namespace Tests;
 
 use Datashaman\JobChain\JobChainFacade as JobChain;
-use Datashaman\JobChain\JobChainDone;
-use Datashaman\JobChain\JobChainResponse;
+use Datashaman\JobChain\Events\JobChainDone;
+use Datashaman\JobChain\Events\JobChainResponse;
 use Illuminate\Support\Facades\Event;
 
 class JobChainTest extends TestCase
@@ -25,13 +25,9 @@ class JobChainTest extends TestCase
                 && $event->jobKey === 'jobTwo';
         });
 
-        Event::assertDispatched(function (JobChainResponse $event) {
+        Event::assertDispatched(function (JobChainDone $event) {
             return $event->response === 'JobThree has run'
                 && $event->jobKey === 'jobThree';
-        });
-
-        Event::assertDispatched(function (JobChainDone $event) {
-            return $event->response === 'JobThree has run';
         });
     }
 }

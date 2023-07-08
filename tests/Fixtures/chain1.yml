@@ -1,15 +1,19 @@
 done: jobThree
-
 lifetime: 86400
+namespace: Tests\Fixtures
+
+channels:
+  - route: user.{user}
+    visibility: private
 
 jobs:
   jobOne:
-    type: Tests\Fixtures\JobOne
+    type: JobOne
   jobTwo:
-    type: Tests\Fixtures\JobTwo
+    type: JobTwo
     params:
       documents: !job jobOne
   jobThree:
-    type: Tests\Fixtures\JobThree
+    type: JobThree
     params:
       documents: !job jobTwo

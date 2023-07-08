@@ -2,12 +2,18 @@
 
 namespace Datashaman\JobChain;
 
-use Exception;
+use Datashaman\JobChain\Events\JobChainDone;
+use Datashaman\JobChain\Events\JobChainError;
+use Datashaman\JobChain\Events\JobChainResponse;
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\Yaml\Tag\TaggedValue;
@@ -18,19 +24,28 @@ class JobChain
     use DispatchesJobs;
 
     protected Collection $jobs;
+    protected ?Model $user;
     protected string $key;
     protected string $done;
     protected string $namespace;
     protected int $lifetime;
+    protected array $channels;
 
     public function __construct(
+        protected string $name,
         array $config
     ) {
+        Log::debug("Initializing JobChain with $name", [
+            'config' => $config,
+        ]);
+
         $this->jobs = collect($config['jobs']);
-        $this->key = $config['key'] ?? Str::uuid();
+
+        $this->channels = $config['channels'] ?? [];
         $this->done = $config['done'] ?? $this->jobs->keys()->last();
-        $this->namespace = trim($config['namespace'] ?? '', "\\ \n\r\t\v\x00");
+        $this->key = $config['key'] ?? Str::uuid();
         $this->lifetime = $config['lifetime'] ?? config('job-chain.lifetime');
+        $this->namespace = trim($config['namespace'] ?? '', "\\ \n\r\t\v\x00");
     }
 
     public function writeToYaml(string $path): self
@@ -51,8 +66,13 @@ class JobChain
         ];
     }
 
-    public function run(array $inputs = [])
+    /**
+     * @throws RuntimeException
+     */
+    public function run(array $inputs = [], ?Model $user = null): void
     {
+        $this->user = $user ?? auth()->user();
+
         foreach ($this->jobs as $jobKey => $job) {
             $jobParams = $job['params'] ?? [];
             $hasDependency = false;
@@ -62,20 +82,22 @@ class JobChain
                     $inputTag = $input->getTag();
                     $inputValue = $input->getValue();
 
-                    throw_if(
-                        $inputTag === 'input' && !Arr::has($inputs, $inputValue),
-                        RuntimeException::class,
-                        "Input '${inputValue}' is missing. Please provide it as parameter to the run method."
-                    );
+                    if ($inputTag === 'input' && !Arr::has($inputs, $inputValue)) {
+                        throw new RuntimeException("Input '{$inputValue}' is missing. Please provide it as parameter to the run method.");
+                    }
 
                     if ($inputTag === 'job') {
+                        Log::debug("Job {$jobKey} depends on another job, skipping");
                         $hasDependency = true;
+
                         break;
                     }
                 }
             }
 
             if (!$hasDependency) {
+                Log::debug("Job {$jobKey} has no job dependencies and inputs are met, dispatching");
+
                 $jobParams = array_merge($jobParams, $inputs);
 
                 $this->dispatchJob($jobKey, $jobParams);
@@ -83,7 +105,7 @@ class JobChain
         }
     }
 
-    public function done(string $jobKey, mixed $error = null, mixed $response = null)
+    public function done(string $jobKey, mixed $error = null, mixed $response = null): void
     {
         if ($error) {
             JobChainError::dispatch($this, $jobKey, $error);
@@ -91,7 +113,14 @@ class JobChain
             return;
         }
 
-        $this->putResponse($jobKey, $response);;
+        if (!$this->isDone() && $jobKey === $this->done) {
+            JobChainDone::dispatch($this, $jobKey, $response);
+            Cache::put($this->getKey('done'), 1, $this->lifetime);
+
+            return;
+        } else {
+            $this->putResponse($jobKey, $response);
+        }
 
         $this
             ->jobs
@@ -101,53 +130,80 @@ class JobChain
                     if ($this->shouldDispatch($jobKey)) {
                         $this->dispatchJob($jobKey);
                     }
-
-                    if (!$this->isDone() && $jobKey === $this->done) {
-                        $response = $this->getResponse($jobKey);
-                        JobChainDone::dispatch($this, $response);
-                        Cache::put($this->getKey('done'), 1, $this->lifetime);
-
-                        return false;
-                    }
                 }
             );
     }
 
-    public function getKey(string $key = '', string $suffix = '')
+    /**
+     * @throws RuntimeException
+     */
+    public function getKey(string $key = '', string $suffix = ''): string
     {
-        throw_if(
-            $suffix && !$key,
-            RuntimeException::class,
-            'Cannot set suffix without key'
-        );
+        if ($suffix && !$key) {
+            throw new RuntimeException('Cannot set suffix without key');
+        }
 
         return collect([$this->key, $key, $suffix])
             ->filter()
             ->implode('.');
     }
 
+    public function getChannels(): array
+    {
+        $privateChannel = "job-chain.{$this->name}";
+
+        $channels = [
+            new PrivateChannel($privateChannel),
+        ];
+
+        foreach ($this->channels as $channel) {
+            $visibility = $channel['visibility'] ?? 'private';
+            $class = $visibility === 'private' ? PrivateChannel::class : Channel::class;
+            $channels[] = new $class($this->getChannelRoute($channel['route'] ?? ''));
+        }
+
+        return $channels;
+    }
+
+    protected function getChannelRoute(string $route): string
+    {
+        $replacements = [
+            '{user}' => $this->user->getKey(),
+        ];
+
+        return str_replace(
+            array_keys($replacements),
+            array_values($replacements),
+            $route
+        );
+    }
+
     protected function dispatchJob(string $jobKey, array $params = [])
     {
+        $params = $this->getParams($this->jobs[$jobKey], $params);
+
+        Log::debug("Dispatching job {$jobKey}", [
+            'jobKey' => $jobKey,
+            'params' => $params,
+        ]);
+
         Cache::put($this->getKey($jobKey, 'dispatched'), 1, $this->lifetime);
 
         $type = $this->jobs[$jobKey]['type'];
 
         if ($this->namespace) {
-            $type = "{$this->namespace}\\{$type}";
+            $type = "$this->namespace\\$type";
         }
 
-        $job = App::make(
-            $type,
-            $this->getParams($this->jobs[$jobKey], $params)
-        );
+        $job = App::make($type, $params);
 
         $job->setJobChain($this);
         $job->setJobKey($jobKey);
 
-        $this->dispatch($job);
+        return $this->dispatch($job);
     }
 
-    protected function shouldDispatch($jobKey)
+    protected function shouldDispatch($jobKey): bool
     {
         return !$this->wasDispatched($jobKey)
             && $this->dependenciesMet($jobKey);
@@ -183,7 +239,7 @@ class JobChain
         return Cache::get($this->getKey($jobKey));
     }
 
-    protected function putResponse(string $jobKey, mixed $response)
+    protected function putResponse(string $jobKey, mixed $response): void
     {
         Cache::put($this->getKey($jobKey), $response, $this->lifetime);
         JobChainResponse::dispatch($this, $jobKey, $response);
@@ -215,7 +271,7 @@ class JobChain
                             return $response;
                         }
 
-                        throw new RuntimeException("Unhandled tag '{$inputTag}' with value '{$inputValue}'");
+                        throw new RuntimeException("Unhandled tag '$inputTag' with value '$inputValue'");
                     }
 
                     return $input;
