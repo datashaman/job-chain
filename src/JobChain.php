@@ -36,7 +36,7 @@ class JobChain
     ) {
         $this->key = $config['key'] ?? Str::uuid();
 
-        Log::debug("Initializing JobChain with key $key", [
+        Log::debug("Initializing JobChain with key {$this->key}", [
             'config' => $config,
         ]);
 
