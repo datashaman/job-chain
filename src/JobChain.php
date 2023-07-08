@@ -34,7 +34,9 @@ class JobChain
     public function __construct(
         array $config
     ) {
-        Log::debug("Initializing JobChain with $key", [
+        $this->key = $config['key'] ?? Str::uuid();
+
+        Log::debug("Initializing JobChain with key {$this->key}", [
             'config' => $config,
         ]);
 
@@ -42,7 +44,6 @@ class JobChain
 
         $this->channels = $config['channels'] ?? [];
         $this->done = $config['done'] ?? $this->jobs->keys()->last();
-        $this->key = $config['key'] ?? Str::uuid();
         $this->lifetime = $config['lifetime'] ?? config('job-chain.lifetime');
         $this->namespace = trim($config['namespace'] ?? '', "\\ \n\r\t\v\x00");
     }
