@@ -34,7 +34,7 @@ class JobChain
     public function __construct(
         array $config
     ) {
-        Log::debug("Initializing JobChain with $name", [
+        Log::debug("Initializing JobChain with $key", [
             'config' => $config,
         ]);
 
@@ -58,11 +58,10 @@ class JobChain
     public function toArray(): array
     {
         return [
-            'name' => $this->name,
-            'done' => $this->done,
-            'jobs' => $this->jobs->toArray(),
             'key' => $this->key,
+            'done' => $this->done,
             'lifetime' => $this->lifetime,
+            'jobs' => $this->jobs->toArray(),
         ];
     }
 
