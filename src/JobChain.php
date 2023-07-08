@@ -59,6 +59,7 @@ class JobChain
     public function toArray(): array
     {
         return [
+            'name' => $this->name,
             'done' => $this->done,
             'jobs' => $this->jobs->toArray(),
             'key' => $this->key,
@@ -168,6 +169,21 @@ class JobChain
     public function getName(): string
     {
         return $this->name;
+    }
+
+    public function getDone(): string
+    {
+        return $this->done;
+    }
+
+    public function getJobs(): array
+    {
+        return $this->jobs;
+    }
+
+    public function getLifetime(): int
+    {
+        return $this->lifetime;
     }
 
     protected function getChannelRoute(string $route): string
