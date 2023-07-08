@@ -32,7 +32,6 @@ class JobChain
     protected array $channels;
 
     public function __construct(
-        protected string $name,
         array $config
     ) {
         Log::debug("Initializing JobChain with $name", [
@@ -164,11 +163,6 @@ class JobChain
         }
 
         return $channels;
-    }
-
-    public function getName(): string
-    {
-        return $this->name;
     }
 
     public function getDone(): string

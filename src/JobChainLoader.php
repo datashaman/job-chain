@@ -39,9 +39,8 @@ class JobChainLoader
 
     protected function loadFromYaml(string $path): JobChain
     {
-        $name = basename($path, '.yml');
         $config = Yaml::parseFile($path, Yaml::PARSE_CUSTOM_TAGS);
 
-        return new JobChain($name, $config);
+        return new JobChain($config);
     }
 }   
