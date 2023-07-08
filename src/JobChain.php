@@ -176,7 +176,7 @@ class JobChain
         return $this->done;
     }
 
-    public function getJobs(): array
+    public function getJobs(): Collection
     {
         return $this->jobs;
     }
