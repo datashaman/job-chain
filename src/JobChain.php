@@ -24,7 +24,7 @@ class JobChain
     use DispatchesJobs;
 
     protected Collection $jobs;
-    protected ?Model $user;
+    protected ?Model $user = null;
     protected string $key;
     protected string $done;
     protected string $namespace;
@@ -150,7 +150,7 @@ class JobChain
 
     public function getChannels(): array
     {
-        $privateChannel = "job-chain.{$this->name}";
+        $privateChannel = "job-chain.{$this->getKey()}";
 
         $channels = [
             new PrivateChannel($privateChannel),
@@ -183,7 +183,7 @@ class JobChain
     protected function getChannelRoute(string $route): string
     {
         $replacements = [
-            '{user}' => $this->user->getKey(),
+            '{user}' => $this->user?->getKey() ?? '',
         ];
 
         return str_replace(
@@ -193,7 +193,7 @@ class JobChain
         );
     }
 
-    protected function dispatchJob(string $jobKey, array $params = [])
+    protected function dispatchJob(string $jobKey, array $params = []): void
     {
         $params = $this->getParams($this->jobs[$jobKey], $params);
 
@@ -215,10 +215,10 @@ class JobChain
         $job->setJobChain($this);
         $job->setJobKey($jobKey);
 
-        return $this->dispatch($job);
+        $this->dispatch($job);
     }
 
-    protected function shouldDispatch($jobKey): bool
+    protected function shouldDispatch(string $jobKey): bool
     {
         return !$this->wasDispatched($jobKey)
             && $this->dependenciesMet($jobKey);
@@ -244,7 +244,7 @@ class JobChain
             ->search(fn ($tag) => !$this->hasResponse($tag->getValue())) === false;
     }
 
-    protected function hasResponse($jobKey): bool
+    protected function hasResponse(string $jobKey): bool
     {
         return Cache::has($this->getKey($jobKey));
     }
@@ -269,13 +269,15 @@ class JobChain
 
         return collect($params)
             ->map(
-                function ($input) {
+                function ($input): mixed {
                     if ($input instanceof TaggedValue) {
                         $inputTag = $input->getTag();
                         $inputValue = $input->getValue();
 
                         if ($inputTag === 'job') {
-                            [$inputJob, $inputKey] = array_pad(explode('.', $inputValue), 2, null);
+                            $parts = explode('.', $inputValue);
+                            $inputJob = $parts[0];
+                            $inputKey = $parts[1] ?? null;
 
                             $response = $this->getResponse($inputJob);
 

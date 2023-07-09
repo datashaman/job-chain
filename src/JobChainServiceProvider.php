@@ -2,6 +2,7 @@
 
 namespace Datashaman\JobChain;
 
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\ServiceProvider;
 
 class JobChainServiceProvider extends ServiceProvider
@@ -17,7 +18,7 @@ class JobChainServiceProvider extends ServiceProvider
             __DIR__.'/../config/job-chain.php', 'job-chain'
         );
 
-        $this->app->singleton('job-chain', function ($app) {
+        $this->app->singleton('job-chain', function (Container $app): JobChainLoader {
             return $app->make(JobChainLoader::class, [
                 'paths' => config('job-chain.paths'),
             ]);
