@@ -69,7 +69,7 @@ class JobChain
     /**
      * @throws RuntimeException
      */
-    public function run(array $inputs = [], ?Model $user = null): void
+    public function run(array $params = [], ?Model $user = null): void
     {
         $this->user = $user ?? auth()->user();
 
@@ -77,16 +77,16 @@ class JobChain
             $jobParams = $job['params'] ?? [];
             $hasDependency = false;
 
-            foreach ($jobParams as $input) {
-                if ($input instanceof TaggedValue) {
-                    $inputTag = $input->getTag();
-                    $inputValue = $input->getValue();
+            foreach ($jobParams as $param) {
+                if ($param instanceof TaggedValue) {
+                    $paramTag = $param->getTag();
+                    $paramValue = $param->getValue();
 
-                    if ($inputTag === 'input' && !Arr::has($inputs, $inputValue)) {
-                        throw new RuntimeException("Input '{$inputValue}' is missing. Please provide it as parameter to the run method.");
+                    if ($paramTag === 'param' && !Arr::has($params, $paramValue)) {
+                        throw new RuntimeException("Parameter '{$paramValue}' is missing. Please provide it when calling the run method.");
                     }
 
-                    if ($inputTag === 'job') {
+                    if ($paramTag === 'job') {
                         Log::debug("Job {$jobKey} depends on another job, skipping");
                         $hasDependency = true;
 
@@ -96,9 +96,9 @@ class JobChain
             }
 
             if (!$hasDependency) {
-                Log::debug("Job {$jobKey} has no job dependencies and inputs are met, dispatching");
+                Log::debug("Job {$jobKey} has no job dependencies and parameter requirements are met, dispatching");
 
-                $jobParams = array_merge($jobParams, $inputs);
+                $jobParams = array_merge($jobParams, $params);
 
                 $this->dispatchJob($jobKey, $jobParams);
             }
@@ -125,13 +125,8 @@ class JobChain
         $this
             ->jobs
             ->keys()
-            ->each(
-                function ($jobKey) {
-                    if ($this->shouldDispatch($jobKey)) {
-                        $this->dispatchJob($jobKey);
-                    }
-                }
-            );
+            ->filter($this->shouldDispatch(...))
+            ->each(fn ($jobKey) => $this->dispatchJob($jobKey));
     }
 
     /**
@@ -240,7 +235,7 @@ class JobChain
 
         return collect($job['data'] ?? [])
             ->values()
-            ->filter(fn ($input) => $input instanceof TaggedValue && $input->getTag() === 'job')
+            ->filter(fn ($param) => $param instanceof TaggedValue && $param->getTag() === 'job')
             ->search(fn ($tag) => !$this->hasResponse($tag->getValue())) === false;
     }
 
@@ -262,38 +257,31 @@ class JobChain
 
     protected function getParams(array $job, array $params = []): array
     {
-        $params = array_merge(
-            $job['params'] ?? [],
-            $params
-        );
-
-        return collect($params)
-            ->map(
-                function ($input): mixed {
-                    if ($input instanceof TaggedValue) {
-                        $inputTag = $input->getTag();
-                        $inputValue = $input->getValue();
-
-                        if ($inputTag === 'job') {
-                            $parts = explode('.', $inputValue);
-                            $inputJob = $parts[0];
-                            $inputKey = $parts[1] ?? null;
-
-                            $response = $this->getResponse($inputJob);
-
-                            if ($inputKey) {
-                                return Arr::get($response, $inputKey);
-                            }
-
-                            return $response;
-                        }
-
-                        throw new RuntimeException("Unhandled tag '$inputTag' with value '$inputValue'");
-                    }
-
-                    return $input;
-                }
-            )
+        return collect($job['params'] ?? [])
+            ->merge($params)
+            ->map($this->getParam(...))
             ->all();
+    }
+
+    protected function getParam($param): mixed {
+        if ($param instanceof TaggedValue) {
+            $paramTag = $param->getTag();
+            $paramValue = $param->getValue();
+
+            if ($paramTag === 'job') {
+                $parts = explode('.', $paramValue);
+
+                $paramJob = $parts[0];
+                $paramKey = $parts[1] ?? null;
+
+                $response = $this->getResponse($paramJob);
+
+                return $paramKey ? $response[$paramKey] : $response;
+            }
+
+            throw new RuntimeException("Unhandled tag '$paramTag' with value '$paramValue'");
+        }
+
+        return $param;
     }
 }
