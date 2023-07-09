@@ -11,7 +11,6 @@
             <directory>tests</directory>
         </testsuite>
     </testsuites>
-
     <php>
         <ini name="display_errors" value="Off"/>
         <ini name="display_startup_errors" value="Off"/>

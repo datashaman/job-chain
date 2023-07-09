@@ -10,8 +10,8 @@
         }
     ],
     "require-dev": {
-        "orchestra/testbench": "^8.5",
-        "tightenco/tlint": "^8.0"
+        "orchestra/testbench": "^8",
+        "tightenco/tlint": "^8"
     },
     "autoload": {
         "psr-4": {
