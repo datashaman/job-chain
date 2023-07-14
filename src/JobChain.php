@@ -87,8 +87,11 @@ class JobChain
                     $paramTag = $param->getTag();
                     $paramValue = $param->getValue();
 
-                    if ($paramTag === 'param' && !Arr::has($params, $paramValue)) {
-                        throw new RuntimeException("Parameter '{$paramValue}' is missing. Please provide it when calling the run method.");
+                    $tagParameters = preg_split('/\s*/', $paramTag);
+                    $paramTag = array_shift($tagParameters);
+
+                    if ($paramTag === 'param' && !Arr::has($params, $paramValue) && !$tagParameters) {
+                        throw new RuntimeException("Parameter '{$paramValue}' is missing and has no default. Please provide it when calling the run method.");
                     }
 
                     if ($paramTag === 'job') {
@@ -302,15 +305,16 @@ class JobChain
             $paramTag = $param->getTag();
             $paramValue = $param->getValue();
 
+            $tagParameters = preg_split('/\s*/', $paramTag);
+            $paramTag = array_shift($tagParameters);
+
             if ($paramTag === 'job') {
-                $parts = explode(' ', $paramValue);
-
-                $paramJob = $parts[0];
-                $paramKey = $parts[1] ?? null;
-
-                $response = $this->getResponse($paramJob);
+                $response = $this->getResponse($tagParameters[0]);
 
                 return $paramKey ? $response[$paramKey] : $response;
+            }
+
+            if ($paramTag === 'param') {
             }
 
             throw new RuntimeException("Unhandled tag '$paramTag' with value '$paramValue'");

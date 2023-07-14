@@ -9,6 +9,8 @@ channels:
 jobs:
   jobOne:
     type: JobOne
+    params:
+      filePath: !param filePath
   jobTwo:
     type: JobTwo
     params:
