@@ -7,7 +7,7 @@ use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 
-class JobChainEvent implements ShouldBroadcast
+abstract class JobChainEvent implements ShouldBroadcast
 {
     use Dispatchable;
     use InteractsWithSockets;
@@ -15,11 +15,6 @@ class JobChainEvent implements ShouldBroadcast
     public function __construct(
         protected JobChain $jobChain
     ) {
-    }
-
-    public function broadcastAs(): string
-    {
-        return $this->jobChain->broadcastAs(static::class);
     }
 
     public function broadcastOn(): array

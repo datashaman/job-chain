@@ -30,6 +30,7 @@ class JobChain
     protected string $runId;
     protected int $lifetime;
     protected array $channels;
+    protected array $params;
 
     public function __construct(
         protected string $name,
@@ -75,6 +76,8 @@ class JobChain
      */
     public function run(array $params = [], ?Model $user = null): void
     {
+        $this->params = $params;
+
         $this->runId = Str::uuid();
         $this->user = $user ?? auth()->user();
 
@@ -83,32 +86,12 @@ class JobChain
             $hasDependency = false;
 
             foreach ($jobParams as $param) {
-                if ($param instanceof TaggedValue) {
-                    $paramTag = $param->getTag();
-                    $paramValue = $param->getValue();
-
-                    $tagParameters = preg_split('/\s*/', $paramTag);
-                    $paramTag = array_shift($tagParameters);
-
-                    if ($paramTag === 'param' && !Arr::has($params, $paramValue) && !$tagParameters) {
-                        throw new RuntimeException("Parameter '{$paramValue}' is missing and has no default. Please provide it when calling the run method.");
-                    }
-
-                    if ($paramTag === 'job') {
-                        Log::debug("Job {$jobKey} depends on another job, skipping");
-                        $hasDependency = true;
-
-                        break;
-                    }
-                }
             }
 
             if (!$hasDependency) {
                 Log::debug("Job {$jobKey} has no job dependencies and parameter requirements are met, dispatching");
 
-                $jobParams = array_merge($jobParams, $params);
-
-                $this->dispatchJob($jobKey, $jobParams);
+                $this->dispatchJob($jobKey);
             }
         }
     }
@@ -126,9 +109,9 @@ class JobChain
             Cache::put($this->getCacheKey('done'), 1, $this->lifetime);
 
             return;
-        } else {
-            $this->putResponse($jobKey, $response);
         }
+
+        $this->putResponse($jobKey, $response);
 
         $this
             ->jobs
@@ -197,21 +180,6 @@ class JobChain
         return $this->lifetime;
     }
 
-    public function getParams(): array
-    {
-        return $this
-            ->getJobs()
-            ->map(
-                function ($job, $name) {
-                    return collect($job['params'])
-                        ->filter(fn ($param) => $param instanceof TaggedValue && $param->getTag() === 'param')
-                        ->keys();
-                }
-            )
-            ->flatten(1)
-            ->all();
-    }
-
     protected function getChannelRoute(string $route): string
     {
         $replacements = [
@@ -225,9 +193,9 @@ class JobChain
         );
     }
 
-    protected function dispatchJob(string $jobKey, array $params = []): void
+    protected function dispatchJob(string $jobKey): void
     {
-        $params = $this->getJobParams($this->jobs[$jobKey], $params);
+        $params = $this->getJobParams($this->jobs[$jobKey]);
 
         Log::debug("Dispatching job {$jobKey}", [
             'jobKey' => $jobKey,
@@ -242,7 +210,7 @@ class JobChain
             $type = "$this->namespace\\$type";
         }
 
-        $job = App::make($type, $params);
+        $job = App::makeWith($type, $params);
 
         $job->setJobChain($this);
         $job->setJobKey($jobKey);
@@ -292,11 +260,52 @@ class JobChain
         JobChainResponse::dispatch($this, $jobKey, $response);
     }
 
-    protected function getJobParams(array $job, array $params = []): array
+    protected function substituteParams(array &$params): void
     {
-        return collect($job['params'] ?? [])
-            ->merge($params)
-            ->map($this->getParam(...))
+        array_walk_recursive($params, $this->substituteParam(...));
+
+        if (Arr::has($params, 'messages')) {
+            foreach ($params['messages'] as &$message) {
+                array_walk_recursive($message, $this->substituteParam(...));
+            }
+        }
+    }
+
+    protected function substituteParam(&$value, $key): void
+    {
+        if (is_object($value) && $value instanceof TaggedValue) {
+            $parts = preg_split('/\s+/', $value->getValue());
+
+            switch ($value->getTag()) {
+                case 'param':
+                    $paramKey = $parts[0];
+
+                    if (!Arr::has($this->params, $paramKey) && count($parts) < 2) {
+                        throw new RuntimeException("Parameter '{$paramKey}' is missing and has no default. Please provide a value when calling the run method.");
+                    }
+
+                    $value = Arr::get($this->params, $paramKey, $parts[1] ?? null);
+                    break;
+                case 'job':
+                    $jobKey = $parts[0];
+                    $jobResponseKey = $parts[1] ?? null;
+
+                    $response = $this->getResponse($jobKey);
+
+                    $value = $jobResponseKey ? Arr::get($response, $jobResponseKey) : $response;
+                    break;
+            }
+        }
+    }
+
+    protected function getJobParams(array $job): array
+    {
+        $jobParams = $job['params'] ?? [];
+
+        $this->substituteParams($jobParams);
+
+        return collect($jobParams)
+            ->map(fn ($param) => $this->getParam($param))
             ->all();
     }
 
@@ -305,16 +314,15 @@ class JobChain
             $paramTag = $param->getTag();
             $paramValue = $param->getValue();
 
-            $tagParameters = preg_split('/\s*/', $paramTag);
-            $paramTag = array_shift($tagParameters);
-
             if ($paramTag === 'job') {
-                $response = $this->getResponse($tagParameters[0]);
+                $parts = preg_split('/\s+/', $paramValue);
 
-                return $paramKey ? $response[$paramKey] : $response;
-            }
+                $jobKey = $parts[0];
+                $jobResponseKey = $parts[1] ?? null;
 
-            if ($paramTag === 'param') {
+                $response = $this->getResponse($jobKey);
+
+                return $jobResponseKey ? Arr::get($response, $jobResponseKey) : $response;
             }
 
             throw new RuntimeException("Unhandled tag '$paramTag' with value '$paramValue'");

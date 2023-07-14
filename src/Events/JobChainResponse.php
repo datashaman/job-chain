@@ -13,4 +13,9 @@ class JobChainResponse extends JobChainEvent
     ) {
         parent::__construct($jobChain);
     }
+
+    public function broadcastAs(): string
+    {
+        return 'job-chain.response';
+    }
 }
