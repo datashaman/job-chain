@@ -17,8 +17,13 @@ class JobChainEvent implements ShouldBroadcast
     ) {
     }
 
+    public function broadcastAs(): string
+    {
+        return $this->jobChain->broadcastAs(static::class);
+    }
+
     public function broadcastOn(): array
     {
-        return $this->jobChain->getChannels();
+        return $this->jobChain->broadcastOn();
     }
 }

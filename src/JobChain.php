@@ -25,20 +25,23 @@ class JobChain
 
     protected Collection $jobs;
     protected ?Model $user = null;
-    protected string $key;
     protected string $done;
     protected string $namespace;
+    protected string $runId;
     protected int $lifetime;
     protected array $channels;
 
     public function __construct(
+        protected string $name,
         array $config
     ) {
-        $this->key = $config['key'] ?? Str::uuid();
-
-        Log::debug("Initializing JobChain with key {$this->key}", [
+        Log::debug("Initializing JobChain named {$this->name}", [
             'config' => $config,
         ]);
+
+        if (Arr::has($config, 'name')) {
+            $this->name = $config['name'];
+        }
 
         $this->jobs = collect($config['jobs']);
 
@@ -58,8 +61,9 @@ class JobChain
 
     public function toArray(): array
     {
-        return [
+        $result = [
             'key' => $this->key,
+            'runId' => $this->runId ?? '',
             'done' => $this->done,
             'lifetime' => $this->lifetime,
             'jobs' => $this->jobs->toArray(),
@@ -71,6 +75,7 @@ class JobChain
      */
     public function run(array $params = [], ?Model $user = null): void
     {
+        $this->runId = Str::uuid();
         $this->user = $user ?? auth()->user();
 
         foreach ($this->jobs as $jobKey => $job) {
@@ -115,7 +120,7 @@ class JobChain
 
         if (!$this->isDone() && $jobKey === $this->done) {
             JobChainDone::dispatch($this, $jobKey, $response);
-            Cache::put($this->getKey('done'), 1, $this->lifetime);
+            Cache::put($this->getCacheKey('done'), 1, $this->lifetime);
 
             return;
         } else {
@@ -132,20 +137,24 @@ class JobChain
     /**
      * @throws RuntimeException
      */
-    public function getKey(string $key = '', string $suffix = ''): string
+    public function getCacheKey(string $key = '', string $suffix = ''): string
     {
         if ($suffix && !$key) {
             throw new RuntimeException('Cannot set suffix without key');
         }
 
-        return collect([$this->key, $key, $suffix])
-            ->filter()
-            ->implode('.');
+        return implode('.', array_filter([
+            'job-chain',
+            $this->name,
+            $this->runId,
+            $key,
+            $suffix
+        ]));
     }
 
-    public function getChannels(): array
+    public function broadcastOn(): array
     {
-        $privateChannel = "job-chain.{$this->getKey()}";
+        $privateChannel = "job-chain.{$this->name}.{$this->runId}";
 
         $channels = [
             new PrivateChannel($privateChannel),
@@ -158,6 +167,16 @@ class JobChain
         }
 
         return $channels;
+    }
+
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    public function getRunId(): string
+    {
+        return $this->runId;
     }
 
     public function getDone(): string
@@ -175,6 +194,21 @@ class JobChain
         return $this->lifetime;
     }
 
+    public function getParams(): array
+    {
+        return $this
+            ->getJobs()
+            ->map(
+                function ($job, $name) {
+                    return collect($job['params'])
+                        ->filter(fn ($param) => $param instanceof TaggedValue && $param->getTag() === 'param')
+                        ->keys();
+                }
+            )
+            ->flatten(1)
+            ->all();
+    }
+
     protected function getChannelRoute(string $route): string
     {
         $replacements = [
@@ -190,14 +224,14 @@ class JobChain
 
     protected function dispatchJob(string $jobKey, array $params = []): void
     {
-        $params = $this->getParams($this->jobs[$jobKey], $params);
+        $params = $this->getJobParams($this->jobs[$jobKey], $params);
 
         Log::debug("Dispatching job {$jobKey}", [
             'jobKey' => $jobKey,
             'params' => $params,
         ]);
 
-        Cache::put($this->getKey($jobKey, 'dispatched'), 1, $this->lifetime);
+        Cache::put($this->getCacheKey($jobKey, 'dispatched'), 1, $this->lifetime);
 
         $type = $this->jobs[$jobKey]['type'];
 
@@ -221,12 +255,12 @@ class JobChain
 
     protected function wasDispatched(string $key): bool
     {
-        return (bool) Cache::get($this->getKey($key, 'dispatched'));
+        return (bool) Cache::get($this->getCacheKey($key, 'dispatched'));
     }
 
     protected function isDone(): bool
     {
-        return (bool) Cache::get($this->getKey('done'));
+        return (bool) Cache::get($this->getCacheKey('done'));
     }
 
     protected function dependenciesMet(string $jobKey): bool
@@ -241,21 +275,21 @@ class JobChain
 
     protected function hasResponse(string $jobKey): bool
     {
-        return Cache::has($this->getKey($jobKey));
+        return Cache::has($this->getCacheKey($jobKey));
     }
 
     protected function getResponse(string $jobKey): mixed
     {
-        return Cache::get($this->getKey($jobKey));
+        return Cache::get($this->getCacheKey($jobKey));
     }
 
     protected function putResponse(string $jobKey, mixed $response): void
     {
-        Cache::put($this->getKey($jobKey), $response, $this->lifetime);
+        Cache::put($this->getCacheKey($jobKey), $response, $this->lifetime);
         JobChainResponse::dispatch($this, $jobKey, $response);
     }
 
-    protected function getParams(array $job, array $params = []): array
+    protected function getJobParams(array $job, array $params = []): array
     {
         return collect($job['params'] ?? [])
             ->merge($params)
@@ -269,7 +303,7 @@ class JobChain
             $paramValue = $param->getValue();
 
             if ($paramTag === 'job') {
-                $parts = explode('.', $paramValue);
+                $parts = explode(' ', $paramValue);
 
                 $paramJob = $parts[0];
                 $paramKey = $parts[1] ?? null;
