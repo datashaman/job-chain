@@ -99,15 +99,19 @@ class JobChain
 
     public function done(string $jobKey, mixed $error = null, mixed $response = null): void
     {
+        if ($this->isDone()) {
+            return;
+        }
+
         if ($error) {
             JobChainError::dispatch($this, $jobKey, $error);
 
             return;
         }
 
-        if (!$this->isDone() && $jobKey === $this->done) {
-            JobChainDone::dispatch($this, $jobKey, $response);
+        if ($jobKey === $this->done) {
             Cache::put($this->getCacheKey('done'), 1, $this->lifetime);
+            JobChainDone::dispatch($this, $jobKey, $response);
 
             return;
         }
