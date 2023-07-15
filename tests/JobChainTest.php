@@ -6,28 +6,28 @@ use Datashaman\JobChain\JobChainFacade as JobChain;
 use Datashaman\JobChain\Events\JobChainDone;
 use Datashaman\JobChain\Events\JobChainResponse;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 
 class JobChainTest extends TestCase
 {
     public function testJobChain()
     {
-        Event::fake();
+        Queue::fake();
 
-        JobChain::run('chain1');
+        JobChain::run('chain1', [
+            'filePath' => 'test.txt',
+        ]);
 
-        Event::assertDispatched(function (JobChainResponse $event) {
-            return $event->response === 'JobOne has run'
-                && $event->jobKey === 'jobOne';
+        Queue::assertPushed(function (Fixtures\JobOne $job) {
+            return $job->filePath == 'test.txt';
         });
 
-        Event::assertDispatched(function (JobChainResponse $event) {
-            return $event->response === 'JobTwo has run'
-                && $event->jobKey === 'jobTwo';
+        Queue::assertPushed(function (Fixtures\JobTwo $job) {
+            dd($job);
         });
 
-        Event::assertDispatched(function (JobChainDone $event) {
-            return $event->response === 'JobThree has run'
-                && $event->jobKey === 'jobThree';
+        Queue::assertPushed(function (Fixtures\JobThree $job) {
+            dd($job);
         });
     }
 }

@@ -14,8 +14,8 @@ jobs:
   jobTwo:
     type: JobTwo
     params:
-      documents: !job jobOne
+      message: !job jobOne
   jobThree:
     type: JobThree
     params:
-      documents: !job jobTwo
+      message: !job jobTwo
