@@ -9,11 +9,13 @@ channels:
 jobs:
   jobOne:
     type: JobOne
+    params:
+      filePath: !param filePath
   jobTwo:
     type: JobTwo
     params:
-      documents: !job jobOne
+      message: !job jobOne
   jobThree:
     type: JobThree
     params:
-      documents: !job jobTwo
+      message: !job jobTwo

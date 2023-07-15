@@ -2,11 +2,12 @@
 
 namespace Tests\Fixtures;
 
-use Datashaman\JobChain\HasJobChain;
-
-class JobThree
+class JobThree extends AbstractJob
 {
-    use HasJobChain;
+    public function __construct(
+        public string $message
+    ) {
+    }
 
     public function handle()
     {

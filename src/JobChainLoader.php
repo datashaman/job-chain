@@ -3,6 +3,7 @@
 namespace Datashaman\JobChain;
 
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\Yaml\Yaml;
 
@@ -39,8 +40,9 @@ class JobChainLoader
 
     protected function loadFromYaml(string $path): JobChain
     {
+        $name = Str::of($path)->basename('.yml');
         $config = Yaml::parseFile($path, Yaml::PARSE_CUSTOM_TAGS);
 
-        return new JobChain($config);
+        return new JobChain($name, $config);
     }
 }   

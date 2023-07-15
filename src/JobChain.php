@@ -25,20 +25,24 @@ class JobChain
 
     protected Collection $jobs;
     protected ?Model $user = null;
-    protected string $key;
     protected string $done;
     protected string $namespace;
+    protected string $runId;
     protected int $lifetime;
     protected array $channels;
+    protected array $params;
 
     public function __construct(
+        protected string $name,
         array $config
     ) {
-        $this->key = $config['key'] ?? Str::uuid();
-
-        Log::debug("Initializing JobChain with key {$this->key}", [
+        Log::debug("Initializing JobChain named {$this->name}", [
             'config' => $config,
         ]);
+
+        if (Arr::has($config, 'name')) {
+            $this->name = $config['name'];
+        }
 
         $this->jobs = collect($config['jobs']);
 
@@ -59,10 +63,13 @@ class JobChain
     public function toArray(): array
     {
         return [
-            'key' => $this->key,
+            'runId' => $this->runId,
+            'channels' => $this->channels,
             'done' => $this->done,
             'lifetime' => $this->lifetime,
+            'namespace' => $this->namespace,
             'jobs' => $this->jobs->toArray(),
+            'user' => $this->user->toArray(),
         ];
     }
 
@@ -71,81 +78,75 @@ class JobChain
      */
     public function run(array $params = [], ?Model $user = null): void
     {
+        $this->params = $params;
+
+        $this->runId = (string) Str::uuid();
         $this->user = $user ?? auth()->user();
 
-        foreach ($this->jobs as $jobKey => $job) {
-            $jobParams = $job['params'] ?? [];
-            $hasDependency = false;
-
-            foreach ($jobParams as $param) {
-                if ($param instanceof TaggedValue) {
-                    $paramTag = $param->getTag();
-                    $paramValue = $param->getValue();
-
-                    if ($paramTag === 'param' && !Arr::has($params, $paramValue)) {
-                        throw new RuntimeException("Parameter '{$paramValue}' is missing. Please provide it when calling the run method.");
-                    }
-
-                    if ($paramTag === 'job') {
-                        Log::debug("Job {$jobKey} depends on another job, skipping");
-                        $hasDependency = true;
-
-                        break;
-                    }
+        $this
+            ->jobs
+            ->keys()
+            ->filter($this->dependenciesMet(...))
+            ->each(function ($jobKey) {
+                if ($this->isDone()) {
+                    return false;
                 }
-            }
 
-            if (!$hasDependency) {
-                Log::debug("Job {$jobKey} has no job dependencies and parameter requirements are met, dispatching");
-
-                $jobParams = array_merge($jobParams, $params);
-
-                $this->dispatchJob($jobKey, $jobParams);
-            }
-        }
+                Log::debug("Job {$jobKey} dependencies are met, dispatching");
+                $this->dispatchJob($jobKey);
+            });
     }
 
     public function done(string $jobKey, mixed $error = null, mixed $response = null): void
     {
+        if ($this->isDone()) {
+            return;
+        }
+
         if ($error) {
             JobChainError::dispatch($this, $jobKey, $error);
 
             return;
         }
 
-        if (!$this->isDone() && $jobKey === $this->done) {
+        if ($jobKey === $this->done) {
+            Cache::put($this->getCacheKey('done'), 1, $this->lifetime);
             JobChainDone::dispatch($this, $jobKey, $response);
-            Cache::put($this->getKey('done'), 1, $this->lifetime);
 
             return;
-        } else {
-            $this->putResponse($jobKey, $response);
         }
+
+        $this->putResponse($jobKey, $response);
 
         $this
             ->jobs
+            ->each(fn (&$value) => $this->substituteParams($value['params']))
             ->keys()
             ->filter($this->shouldDispatch(...))
-            ->each(fn ($jobKey) => $this->dispatchJob($jobKey));
+            ->each($this->dispatchJob(...));
     }
 
     /**
      * @throws RuntimeException
      */
-    public function getKey(string $key = '', string $suffix = ''): string
+    public function getCacheKey(string $key = '', string $suffix = ''): string
     {
         if ($suffix && !$key) {
             throw new RuntimeException('Cannot set suffix without key');
         }
 
-        return collect([$this->key, $key, $suffix])
-            ->filter()
-            ->implode('.');
+        return implode('.', array_filter([
+            'job-chain',
+            $this->name,
+            $this->runId,
+            $key,
+            $suffix
+        ]));
     }
 
-    public function getChannels(): array
+    public function broadcastOn(): array
     {
-        $privateChannel = "job-chain.{$this->getKey()}";
+        $privateChannel = "job-chain.{$this->name}.{$this->runId}";
 
         $channels = [
             new PrivateChannel($privateChannel),
@@ -158,6 +159,16 @@ class JobChain
         }
 
         return $channels;
+    }
+
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    public function getRunId(): string
+    {
+        return $this->runId;
     }
 
     public function getDone(): string
@@ -188,16 +199,16 @@ class JobChain
         );
     }
 
-    protected function dispatchJob(string $jobKey, array $params = []): void
+    protected function dispatchJob(string $jobKey): void
     {
-        $params = $this->getParams($this->jobs[$jobKey], $params);
+        $params = $this->getJobParams($jobKey);
 
         Log::debug("Dispatching job {$jobKey}", [
             'jobKey' => $jobKey,
             'params' => $params,
         ]);
 
-        Cache::put($this->getKey($jobKey, 'dispatched'), 1, $this->lifetime);
+        Cache::put($this->getCacheKey($jobKey, 'dispatched'), 1, $this->lifetime);
 
         $type = $this->jobs[$jobKey]['type'];
 
@@ -205,7 +216,7 @@ class JobChain
             $type = "$this->namespace\\$type";
         }
 
-        $job = App::make($type, $params);
+        $job = App::makeWith($type, $params);
 
         $job->setJobChain($this);
         $job->setJobKey($jobKey);
@@ -221,19 +232,19 @@ class JobChain
 
     protected function wasDispatched(string $key): bool
     {
-        return (bool) Cache::get($this->getKey($key, 'dispatched'));
+        return (bool) Cache::get($this->getCacheKey($key, 'dispatched'));
     }
 
     protected function isDone(): bool
     {
-        return (bool) Cache::get($this->getKey('done'));
+        return (bool) Cache::get($this->getCacheKey('done'));
     }
 
     protected function dependenciesMet(string $jobKey): bool
     {
         $job = $this->jobs[$jobKey];
 
-        return collect($job['data'] ?? [])
+        return collect($job['params'] ?? [])
             ->values()
             ->filter(fn ($param) => $param instanceof TaggedValue && $param->getTag() === 'job')
             ->search(fn ($tag) => !$this->hasResponse($tag->getValue())) === false;
@@ -241,47 +252,69 @@ class JobChain
 
     protected function hasResponse(string $jobKey): bool
     {
-        return Cache::has($this->getKey($jobKey));
+        return Cache::has($this->getCacheKey($jobKey));
     }
 
     protected function getResponse(string $jobKey): mixed
     {
-        return Cache::get($this->getKey($jobKey));
+        return Cache::get($this->getCacheKey($jobKey));
     }
 
     protected function putResponse(string $jobKey, mixed $response): void
     {
-        Cache::put($this->getKey($jobKey), $response, $this->lifetime);
+        Log::debug("Put response for '{$jobKey}'", [
+            'response' => $response,
+        ]);
+        Cache::put($this->getCacheKey($jobKey), $response, $this->lifetime);
         JobChainResponse::dispatch($this, $jobKey, $response);
     }
 
-    protected function getParams(array $job, array $params = []): array
+    protected function substituteParams(array &$params): void
     {
-        return collect($job['params'] ?? [])
-            ->merge($params)
-            ->map($this->getParam(...))
-            ->all();
+        array_walk_recursive($params, $this->substituteParam(...));
+
+        if (Arr::has($params, 'messages')) {
+            foreach ($params['messages'] as &$message) {
+                array_walk_recursive($message, $this->substituteParam(...));
+            }
+        }
     }
 
-    protected function getParam($param): mixed {
-        if ($param instanceof TaggedValue) {
-            $paramTag = $param->getTag();
-            $paramValue = $param->getValue();
+    protected function substituteParam(&$value): void
+    {
+        if ($value instanceof TaggedValue) {
+            $parts = preg_split('/\s+/', $value->getValue());
 
-            if ($paramTag === 'job') {
-                $parts = explode('.', $paramValue);
+            switch ($value->getTag()) {
+                case 'param':
+                    $paramKey = $parts[0];
 
-                $paramJob = $parts[0];
-                $paramKey = $parts[1] ?? null;
+                    if (!Arr::has($this->params, $paramKey) && count($parts) < 2) {
+                        throw new RuntimeException("Parameter '{$paramKey}' is missing and has no default. Please provide a value when calling the run method.");
+                    }
 
-                $response = $this->getResponse($paramJob);
+                    $value = Arr::get($this->params, $paramKey, $parts[1] ?? null);
+                    break;
+                case 'job':
+                    $jobKey = $parts[0];
+                    $jobResponseKey = $parts[1] ?? null;
 
-                return $paramKey ? $response[$paramKey] : $response;
+                    if ($this->hasResponse($jobKey)) {
+                        $response = $this->getResponse($jobKey);
+                        $value = $jobResponseKey ? Arr::get($response, $jobResponseKey) : $response;
+                    }
+                    break;
             }
-
-            throw new RuntimeException("Unhandled tag '$paramTag' with value '$paramValue'");
         }
+    }
 
-        return $param;
+    protected function getJobParams(string $jobKey): array
+    {
+        $job = $this->jobs[$jobKey];
+        $jobParams = $job['params'] ?? [];
+
+        $this->substituteParams($jobParams);
+
+        return $jobParams;
     }
 }
